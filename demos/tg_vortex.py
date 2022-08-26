@@ -308,7 +308,6 @@ C_I = Constant(C_I_num)
 
 # Weak problem residual; note use of midpoint velocity:
 res_interior = interiorResidualIM(u_mid_f,p_f,v_f,q_f,rho,mu,mesh_f,
-                     u_ad = u_mid_f,
                      G=G_b,u_t=u_t_f,Dt=Dt,
                      C_I=C_I,
                      C_t=Constant(4),
@@ -319,6 +318,9 @@ res_boundary = weakDirichletBCIM(u_mid_f,p_f,v_f,q_f,u_exact,rho,mu,mesh_f,dom_c
                      G=G_b,sym=symmetric,C_pen=C_pen,overPenalize=False)
 
 res_f = res_interior + res_boundary
+
+
+
 
 # Time stepping loop:
 for step in range(0,N_STEPS):
@@ -337,6 +339,7 @@ for step in range(0,N_STEPS):
     up_old_f.assign(up_f)
     t.assign(float(t)+0.5*float(Dt))
     e_u = u_f - u_exact
+
     
 
 norm_L2 = L2Norm(e_u, dx_custom)
