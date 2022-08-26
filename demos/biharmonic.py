@@ -83,7 +83,7 @@ write_file = args.wf
 ft = float(args.ft)
 output_file = args.of
 beta_value = args.beta_val
-alpha_value = args.beta_val
+alpha_value = args.alpha_val
 
 LINEAR_SOLVER = args.solv
 PRECONDITIONER = args.pc
@@ -165,37 +165,6 @@ u = Function(V)
 v = TestFunction(V)
 x = SpatialCoordinate(mesh_f)
 dom_constant= Constant(0)*v*dx(domain=mesh_f, subdomain_data=sub_domains)
-
-u_exact = u_ex(x,dim)
-
-f = F(x,dim)
-
-n = FacetNormal(mesh_f)
-h_E = CellDiameter(mesh_f)
-beta = Constant(beta_value)
-alpha = Constant(alpha_value)
-sgn = 1.0
-if (symmetric is not True):
-    sgn = -1.0
-
-A = inner(lap(u), lap(v))*dx_custom\
-            - inner(lap(u("+")),dot(grad(v("+")),n("+")))*ds_custom \
-            + inner(dot(grad(lap(u("+"))),n("+")),v("+"))*ds_custom \
-            + sgn*(inner(dot(grad(lap(v("+"))),n("+")),(u("+"))))*ds_custom \
-            - sgn*inner(lap(v("+")),(dot(grad(u("+")),n("+"))))*ds_custom \
-            + beta*(h_E("+")**(-1))*inner((dot(grad(u("+")),n("+"))), (dot(grad(v("+")),n("+"))))*ds_custom \
-            + alpha*(h_E("+")**(-3))*inner((u("+")), v("+"))*ds_custom + dom_constant
-
-b = inner(f, v)*dx_custom \
-    + sgn*(inner(dot(grad(lap(v("+"))),n("+")),(u_exact("+"))))*ds_custom \
-    - sgn*inner(lap(v("+")),(dot(grad(u_exact("+")),n("+"))))*ds_custom \
-    + beta*(h_E("+")**(-1))*inner((dot(grad(u_exact("+")),n("+"))), (dot(grad(v("+")),n("+"))))*ds_custom \
-    + alpha*(h_E("+")**(-3))*inner(u_exact("+"), v("+"))*ds_custom + dom_constant
-    
-res = A - b
-
-J = derivative(res, u)
-
 local_Size = v2p(assemble(dom_constant)).getLocalSize()
 
 
@@ -209,12 +178,48 @@ M = readExOp(fileNames,V,mesh_f,local_Size,nodeFileNames=nodeFileNames,k=k)
 M.assemble()
 stop = default_timer()
 t_extract = stop-start
-
 num_fg_dofs,num_bg_dofs = M.getSize()
+
+
+
+u_exact = u_ex(x,dim)
+f = F(x,dim)
+n = FacetNormal(mesh_f)
+h_E = CellDiameter(mesh_f)
+h_N = h_E('+')
+
+h_b = num_bg_dofs**(-k/dim)
+#h_N = h_b 
+
+beta = Constant(beta_value)
+alpha = Constant(alpha_value)
+sgn = 1.0
+if (symmetric is not True):
+    sgn = -1.0
+
+A = inner(lap(u), lap(v))*dx_custom\
+            - inner(lap(u("+")),dot(grad(v("+")),n("+")))*ds_custom \
+            + inner(dot(grad(lap(u("+"))),n("+")),v("+"))*ds_custom \
+            + sgn*(inner(dot(grad(lap(v("+"))),n("+")),(u("+"))))*ds_custom \
+            - sgn*inner(lap(v("+")),(dot(grad(u("+")),n("+"))))*ds_custom \
+            + beta*(h_N**(-1))*inner((dot(grad(u("+")),n("+"))), (dot(grad(v("+")),n("+"))))*ds_custom \
+            + alpha*(h_N**(-3))*inner((u("+")), v("+"))*ds_custom + dom_constant
+
+b = inner(f, v)*dx_custom \
+    + sgn*(inner(dot(grad(lap(v("+"))),n("+")),(u_exact("+"))))*ds_custom \
+    - sgn*inner(lap(v("+")),(dot(grad(u_exact("+")),n("+"))))*ds_custom \
+    + beta*(h_N**(-1))*inner((dot(grad(u_exact("+")),n("+"))), (dot(grad(v("+")),n("+"))))*ds_custom \
+    + alpha*(h_N**(-3))*inner(u_exact("+"), v("+"))*ds_custom + dom_constant
+    
+res = A - b
+
+J = derivative(res, u)
+
+
 
 # Transfer residual and linearization to background mesh
 dR_b, R_b = assembleLinearSystemBackground(J, -res, M)
-u_p = dR_b.createVecLeft()
+u_petsc = dR_b.createVecLeft()
 
 start = default_timer()
 
@@ -222,7 +227,13 @@ start = default_timer()
 
 # Solve the linear system
 start = default_timer()
-u_petsc = solveNewtonsLinear(J,-b,u,M,u_p,maxIters=20,relax_param=1,linear_method='mumps',relativeTolerance=1e-12)
+if dim == 3:
+    u_petsc = solveNewtonsLinear(J,-b,u,M,u_petsc,maxIters=20,relax_param=1,linear_method='mumps',relativeTolerance=1e-12)
+else: 
+    LINEAR_SOLVER='mumps'
+    #u_petsc = solveNewtonsLinear(J,-b,u,M,u_petsc,maxIters=20,relax_param=1,linear_method='mumps',relativeTolerance=1e-12)
+
+    solveKSP(dR_b,R_b,u_petsc, method=LINEAR_SOLVER, PC=PRECONDITIONER,monitor=True)
 u_new = Function(V)
 transferToForeground(u_new, u_petsc, M)
 
@@ -262,15 +273,6 @@ if (symmetric is not True):
     Nitsche_type = 'Nonsymmetric Nitsche Method'
 
 if rank == 0:
-    if write_file: 
-        f = open(output_file, 'a')
-        print('writing to file')
-        #fs = "num_dofs,L2,H1,H2,L2r,H1r,H2r"
-        f.write("\n")
-        #ref = os.getcwd()[-1]
-        fs = str(ref) + ","+ str(norm_L2_r)+","+str(norm_H1_r)+","+str(norm_H2_r)+","+str(c_tol)
-        f.write(fs)
-        f.close()
     print('-'*40)
     print('L2 norm:', norm_L2)
     print('H1 norm:', norm_H1)
@@ -279,3 +281,14 @@ if rank == 0:
     print('relative H1 norm:', norm_H1_r)
     print('relative H2 norm:', norm_H2_r)
     print('-'*40)
+
+    if write_file: 
+        f = open(output_file, 'a')
+        print('writing to file')
+        #fs = "num_dofs,L2,H1,H2,L2r,H1r,H2r"
+        f.write("\n")
+        #ref = os.getcwd()[-1]
+        fs = str(ref) + ","+ str(norm_L2_r)+","+str(norm_H1_r)+","+str(norm_H2_r)+","+str(alpha_value)+","+str(beta_value)
+        f.write(fs)
+        f.close()
+    
