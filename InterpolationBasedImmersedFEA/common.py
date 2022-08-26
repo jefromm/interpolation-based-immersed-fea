@@ -384,7 +384,7 @@ def solveNewtonsLinear(A,L,u_f, M, u_p,
                     +str(i)+", Relative norm of du: "+ str(relativeNorm) 
                     +", Relative norm of res: "+ str(relativeNormRes))
                 sys.stdout.flush()
-        if(relativeNorm < relativeTolerance):
+        if(relativeNorm < relativeTolerance) or (relativeNormRes < relativeTolerance):
             if(mpirank == 0):
                 print('converged')
             converged = True
